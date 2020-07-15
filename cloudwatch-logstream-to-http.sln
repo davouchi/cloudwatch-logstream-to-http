@@ -1,0 +1,25 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 16
+VisualStudioVersion = 16.0.30011.22
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "CloudWatch-LogStream-Http", "..\CloudWatch-LogStream-Http\CloudWatch-LogStream-Http.csproj", "{A21D17B4-CA2B-4158-ADFF-A8CBF4864841}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{A21D17B4-CA2B-4158-ADFF-A8CBF4864841}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A21D17B4-CA2B-4158-ADFF-A8CBF4864841}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A21D17B4-CA2B-4158-ADFF-A8CBF4864841}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A21D17B4-CA2B-4158-ADFF-A8CBF4864841}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {20B68C2F-4EFE-4129-AA4D-3FB2E94350C1}
+	EndGlobalSection
+EndGlobal
