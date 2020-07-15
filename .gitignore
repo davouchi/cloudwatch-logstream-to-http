@@ -338,3 +338,4 @@ ASALocalRun/
 
 # BeatPulse healthcheck temp database
 healthchecksdb
+/CloudWatch-LogStream-Http/aws-lambda-tools-defaults.json
