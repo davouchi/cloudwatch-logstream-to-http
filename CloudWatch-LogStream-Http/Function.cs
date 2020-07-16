@@ -18,6 +18,8 @@ namespace CloudWatch_LogStream_Http
 {
     public class Function
     {
+        private readonly static HttpClient client = new HttpClient();
+
         private static void CopyTo(Stream src, Stream dest)
         {
             byte[] bytes = new byte[4096];
@@ -52,12 +54,13 @@ namespace CloudWatch_LogStream_Http
             return decodedData;
         }
 
-        public static async Task<string> FunctionHandler(AwsRequestObject logs)
+        public static async Task FunctionHandler(AwsRequestObject logs)
         {
             var response = "System Error Occurred Trying To Process CloudWatchLogStreamToHTTP. Check Inner Exception.";
 
             try
             {
+                Console.WriteLine("Log data - " + logs.awslogs.data);
                 string target = Base64Decode(logs.awslogs.data);
 
                 if (target != null)
@@ -70,7 +73,11 @@ namespace CloudWatch_LogStream_Http
                         {
                             try
                             {
-                                await SendLogEvents(singleEvent.message);
+                                if (singleEvent.message.Contains(Environment.GetEnvironmentVariable("timeFormat")))
+                                {
+                                    await Task.Run(()=>SendLogEvents(singleEvent.message));
+                                }
+
                                 response = "";
                             }
                             catch (Exception ex)
@@ -84,7 +91,7 @@ namespace CloudWatch_LogStream_Http
                     {
                         try
                         {
-                            var messageList = decodeObj.logEvents.Where(x => x.message.Contains("_zl_timestamp")).Select(x => x.message).ToList();
+                            var messageList = decodeObj.logEvents.Where(x => x.message.Contains(Environment.GetEnvironmentVariable("timeFormat"))).Select(x => x.message).ToList();
 
                             var payload = new JsonSerializerSettings { Converters = { new SerializerFormatOverload("\n", "") } };
 
@@ -94,7 +101,7 @@ namespace CloudWatch_LogStream_Http
 
                             var payloadRegex = Regex.Replace(payloadFormat, @"\\", "");
 
-                            await SendLogEvents(payloadRegex);
+                            await Task.Run(() => SendLogEvents(payloadRegex));
 
                             response = "";
                         }
@@ -111,35 +118,43 @@ namespace CloudWatch_LogStream_Http
             }
             catch (Exception ex)
             {
-                Console.WriteLine("Response - " + response + " Exception Thrown - " + ex);
+                Console.WriteLine("Response - " + response + " Exception Thrown - " + ex + " awsTrigger - " + logs.awslogs.data);
             }
-
-            return response;
         }
 
         private static async Task SendLogEvents(string logEvent)
         {
+           
+                client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+                var content = new StringContent(logEvent, Encoding.UTF8, "application/json");
+             
+                await Task.Run(()=>SendToEndPoint(Environment.GetEnvironmentVariable("uploadDomain"), content, logEvent));                                     
+        }
+
+        private static async Task SendToEndPoint(string url, StringContent content, string logEvent)
+        {          
+
             try
             {
-                using (HttpClient client = new HttpClient())
+                HttpResponseMessage response = await Task.Run(()=>client.PostAsync(url, content));
+                //await response.Content.ReadAsStringAsync(); 
+                if (response.StatusCode != HttpStatusCode.OK)
                 {
-                    client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-                    var content = new StringContent(logEvent, Encoding.UTF8, "application/json");
-
-                    HttpResponseMessage response = await client.PostAsync(Environment.GetEnvironmentVariable("uploadDomain"), content);
-
-                    await response.Content.ReadAsStringAsync();
-
-                    if (response.StatusCode != HttpStatusCode.OK)
-                    {
-                        Console.WriteLine("Error Occurred Processing event - " + logEvent + " HTTP Status Code - " + response.StatusCode);
-                    }
+                    Console.WriteLine("Error Occurred Processing event - " + logEvent + " HTTP Status Code - " + response.StatusCode);
+                }
+                else
+                {
+                    Console.WriteLine("Log event was sent to endpoint with status code - " + response.StatusCode);
                 }
             }
             catch (Exception ex)
             {
+
                 Console.WriteLine("Exception - " + ex + "Log Event - " + logEvent);
             }
+          
+
+          
         }
     }
 }
