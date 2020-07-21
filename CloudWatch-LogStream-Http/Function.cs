@@ -18,7 +18,28 @@ namespace CloudWatch_LogStream_Http
 {
     public class Function
     {
-        private readonly static HttpClient client = new HttpClient();
+        private readonly static HttpClient client = new HttpClient(new SocketsHttpHandler
+        {
+            ConnectTimeout = TimeSpan.FromSeconds(100)
+        })
+        {
+            Timeout = TimeSpan.FromSeconds(100)
+        };
+
+        //private static MemoryMappedFile CreateFile(string content, string filePath)
+        //{
+        //    var file = MemoryMappedFile.CreateNew(filePath, 4066000);
+
+        //    using (var stream = file.CreateViewStream())
+        //    {
+        //        using (var writer = new StreamWriter(stream))
+        //        {
+        //            writer.WriteLine(content);
+        //        }
+        //    }
+
+        //    return file;
+        //}
 
         private static void CopyTo(Stream src, Stream dest)
         {
@@ -57,10 +78,11 @@ namespace CloudWatch_LogStream_Http
         public static async Task FunctionHandler(AwsRequestObject logs)
         {
             var response = "System Error Occurred Trying To Process CloudWatchLogStreamToHTTP. Check Inner Exception.";
-
+            int retryCount = 0;
             try
             {
-                Console.WriteLine("Log data - " + logs.awslogs.data);
+                Console.WriteLine("Log data - " + logs.awslogs.data + " " + " Environment Variables - " + JsonConvert.SerializeObject(Environment.GetEnvironmentVariables()));
+
                 string target = Base64Decode(logs.awslogs.data);
 
                 if (target != null)
@@ -75,7 +97,7 @@ namespace CloudWatch_LogStream_Http
                             {
                                 if (singleEvent.message.Contains(Environment.GetEnvironmentVariable("timeFormat")))
                                 {
-                                    await Task.Run(()=>SendLogEvents(singleEvent.message));
+                                    await Task.Run(() => SendLogEvents(singleEvent.message, retryCount));
                                 }
 
                                 response = "";
@@ -87,7 +109,7 @@ namespace CloudWatch_LogStream_Http
                             }
                         }
                     }
-                    else if (Environment.GetEnvironmentVariable("postType") == "multi")
+                    else if (Environment.GetEnvironmentVariable("postType") == "multi" || Environment.GetEnvironmentVariable("postType") == "fileUpload")
                     {
                         try
                         {
@@ -101,7 +123,33 @@ namespace CloudWatch_LogStream_Http
 
                             var payloadRegex = Regex.Replace(payloadFormat, @"\\", "");
 
-                            await Task.Run(() => SendLogEvents(payloadRegex));
+                            if (Environment.GetEnvironmentVariable("postType") == "multi")
+                            {
+                                await Task.Run(() => SendLogEvents(payloadRegex, retryCount));
+                            }
+                            else if (Environment.GetEnvironmentVariable("postType") == "fileUpload")
+                            {
+                                string fileName = Guid.NewGuid().ToString() + ".txt";
+
+                                var logPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory + fileName);
+
+                                //var create = CreateFile(payloadRegex, logPath);
+                                Console.WriteLine("Working directory - " + logPath);
+                                using (var writer = File.CreateText(logPath))
+                                {
+                                    await writer.WriteLineAsync(payloadRegex);
+                                }
+
+                                await SendFileToEndPoint(logPath, payloadRegex);
+                                try
+                                {
+                                    File.Delete(logPath);
+                                }
+                                catch (Exception ex)
+                                {
+                                    Console.WriteLine("Error Occurred Trying To Delete - " + logPath + " " + " Exception - " + ex);
+                                }
+                            }
 
                             response = "";
                         }
@@ -115,6 +163,10 @@ namespace CloudWatch_LogStream_Http
                         Console.WriteLine("Environment Variable Postype Does Not Exist In Function");
                     }
                 }
+                else
+                {
+                    Console.WriteLine("Error occurred trying to decode log file");
+                }
             }
             catch (Exception ex)
             {
@@ -122,22 +174,24 @@ namespace CloudWatch_LogStream_Http
             }
         }
 
-        private static async Task SendLogEvents(string logEvent)
+        private static async Task SendLogEvents(string logEvent, int retryCount)
         {
-           
-                client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-                var content = new StringContent(logEvent, Encoding.UTF8, "application/json");
-             
-                await Task.Run(()=>SendToEndPoint(Environment.GetEnvironmentVariable("uploadDomain"), content, logEvent));                                     
+            client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            var content = new StringContent(logEvent, Encoding.UTF8, "application/json");
+
+            await Task.Run(() => SendToEndPoint(Environment.GetEnvironmentVariable("uploadDomain"), content, logEvent, retryCount));
         }
 
-        private static async Task SendToEndPoint(string url, StringContent content, string logEvent)
-        {          
+        //Send Json File
+        private static async Task SendToEndPoint(string url, StringContent content, string logEvent, int retryCount)
+        {
+            retryCount++;
 
             try
             {
-                HttpResponseMessage response = await Task.Run(()=>client.PostAsync(url, content));
-                //await response.Content.ReadAsStringAsync(); 
+                HttpResponseMessage response = await client.PostAsync(url, content);
+                response.EnsureSuccessStatusCode();
+
                 if (response.StatusCode != HttpStatusCode.OK)
                 {
                     Console.WriteLine("Error Occurred Processing event - " + logEvent + " HTTP Status Code - " + response.StatusCode);
@@ -149,12 +203,44 @@ namespace CloudWatch_LogStream_Http
             }
             catch (Exception ex)
             {
+                if (retryCount != Convert.ToInt32(Environment.GetEnvironmentVariable("retryCount")))
+                {
+                    Console.WriteLine("Retrying Log Event Post To Endpoint. Retry Count - " + retryCount);
+                    await Task.Run(() => SendToEndPoint(url, content, logEvent, retryCount));
+                }
+                else
+                {
+                    Console.WriteLine("Exception - " + ex + " Log Event - " + logEvent + " retryCount - " + retryCount);
+                }
+            }
+        }
 
+        //Send Log File
+        private static async Task SendFileToEndPoint(string filePath, string logEvent)
+        {
+            using MultipartFormDataContent form = new MultipartFormDataContent();
+            try
+            {
+                using var fileContent = new ByteArrayContent(await File.ReadAllBytesAsync(filePath));
+                fileContent.Headers.ContentType = MediaTypeHeaderValue.Parse("multipart/form-data");
+                form.Add(fileContent, "file", Path.GetFileName(filePath));
+
+                HttpResponseMessage response = await client.PostAsync(Environment.GetEnvironmentVariable("uploadDomain"), form);
+                response.EnsureSuccessStatusCode();
+
+                if (response.StatusCode != HttpStatusCode.OK)
+                {
+                    Console.WriteLine("Error Occurred Processing event - " + logEvent + " HTTP Status Code - " + response.StatusCode);
+                }
+                else
+                {
+                    Console.WriteLine("Log event was sent to endpoint with status code - " + response.StatusCode + ", log path - " + filePath);
+                }
+            }
+            catch (Exception ex)
+            {
                 Console.WriteLine("Exception - " + ex + "Log Event - " + logEvent);
             }
-          
-
-          
         }
     }
 }

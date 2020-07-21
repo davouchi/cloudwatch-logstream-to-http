@@ -7,7 +7,8 @@
       "workingDirectory": ".\\bin\\$(Configuration)\\netcoreapp3.1",
       "environmentVariables": {
         "timeFormat": "_zl_timestamp",
-        "postType": "multi",
+        "postType": "fileUpload",
+        "retryCount": "3",
         "uploadDomain": "https://logc.site24x7.com/event/receiver?token=dXNfZmZmMGViMWQ1N2M5ZDVmZGJjN2Q0ODkyYjQ3MjJjOGIvYXdzbGFtYmRhYXBwbGljYXRpb25sb2dzZGV2"
       }
     }
