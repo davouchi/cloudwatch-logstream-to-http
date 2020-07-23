@@ -203,7 +203,7 @@ namespace CloudWatch_LogStream_Http
             }
             catch (Exception ex)
             {
-                if (retryCount != Convert.ToInt32(Environment.GetEnvironmentVariable("retryCount")))
+                if (retryCount <= Convert.ToInt32(Environment.GetEnvironmentVariable("retryCount")))
                 {
                     Console.WriteLine("Retrying Log Event Post To Endpoint. Retry Count - " + retryCount);
                     await Task.Run(() => SendToEndPoint(url, content, logEvent, retryCount));
